@@ -48,6 +48,7 @@ function el(tag, attrs = {}, ...children) {
 
 function clearView() {
   view.innerHTML = "";
+  document.body.querySelectorAll(":scope > .chip").forEach((stray) => stray.remove());
 }
 
 function randInt(min, max) {
@@ -121,6 +122,40 @@ function beep(freq, duration, type = "sine", when = 0) {
   }
 }
 
+function playClap(when = 0) {
+  if (state.muted) return;
+  try {
+    const ctx = ensureAudio();
+    const start = ctx.currentTime + when;
+    const clapTimes = [0, 0.1, 0.2, 0.36];
+    clapTimes.forEach((t) => {
+      const duration = 0.09;
+      const bufferSize = Math.floor(ctx.sampleRate * duration);
+      const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+      const data = buffer.getChannelData(0);
+      for (let i = 0; i < bufferSize; i++) {
+        data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (bufferSize * 0.28));
+      }
+      const noise = ctx.createBufferSource();
+      noise.buffer = buffer;
+      const filter = ctx.createBiquadFilter();
+      filter.type = "bandpass";
+      filter.frequency.value = 1400 + Math.random() * 900;
+      filter.Q.value = 0.9;
+      const gain = ctx.createGain();
+      gain.gain.setValueAtTime(0.3, start + t);
+      gain.gain.exponentialRampToValueAtTime(0.001, start + t + duration);
+      noise.connect(filter);
+      filter.connect(gain);
+      gain.connect(ctx.destination);
+      noise.start(start + t);
+      noise.stop(start + t + duration + 0.02);
+    });
+  } catch (e) {
+    /* الصوت غير متاح - يتجاهل بصمت */
+  }
+}
+
 function playSound(kind) {
   if (kind === "correct") {
     beep(880, 0.12);
@@ -129,6 +164,7 @@ function playSound(kind) {
     beep(180, 0.25, "sawtooth");
   } else if (kind === "win") {
     [523, 659, 784, 1046].forEach((f, i) => beep(f, 0.16, "sine", i * 0.12));
+    playClap(0.2);
   } else if (kind === "good") {
     beep(659, 0.12);
     beep(880, 0.18, "sine", 0.1);
@@ -269,6 +305,7 @@ function makeDraggable(chip, { dropZoneSelector, onDrop }) {
     chip.style.top = rect.top + "px";
 
     let lastZone = null;
+    let settled = false;
 
     function move(ev) {
       chip.style.left = ev.clientX - offsetX + "px";
@@ -284,10 +321,22 @@ function makeDraggable(chip, { dropZoneSelector, onDrop }) {
       }
     }
 
-    function up(ev) {
-      chip.releasePointerCapture(ev.pointerId);
+    const revert = () => {
+      if (originalNext) originalParent.insertBefore(chip, originalNext);
+      else originalParent.append(chip);
+    };
+
+    function finish(ev, cancelled) {
+      if (settled) return;
+      settled = true;
+      try {
+        chip.releasePointerCapture(ev.pointerId);
+      } catch (e) {
+        /* قد يكون المؤشر قد فُقد بالفعل - يتجاهل بصمت */
+      }
       chip.removeEventListener("pointermove", move);
       chip.removeEventListener("pointerup", up);
+      chip.removeEventListener("pointercancel", cancel);
       chip.classList.remove("dragging");
       chip.style.position = "";
       chip.style.zIndex = "";
@@ -296,20 +345,28 @@ function makeDraggable(chip, { dropZoneSelector, onDrop }) {
       chip.style.top = "";
       if (lastZone) lastZone.classList.remove("drag-over");
 
+      if (cancelled) {
+        revert();
+        return;
+      }
+
       chip.style.pointerEvents = "none";
       const under = document.elementFromPoint(ev.clientX, ev.clientY);
       chip.style.pointerEvents = "";
       const zone = under ? under.closest(dropZoneSelector) : null;
-
-      const revert = () => {
-        if (originalNext) originalParent.insertBefore(chip, originalNext);
-        else originalParent.append(chip);
-      };
       onDrop(zone, chip, { revert, originalParent });
+    }
+
+    function up(ev) {
+      finish(ev, false);
+    }
+    function cancel(ev) {
+      finish(ev, true);
     }
 
     chip.addEventListener("pointermove", move);
     chip.addEventListener("pointerup", up);
+    chip.addEventListener("pointercancel", cancel);
   }
 }
 
@@ -341,12 +398,13 @@ function runSession(config) {
   const range = state.range;
   let round = 0;
   let totalMistakes = 0;
+  let perfectRounds = 0;
 
   function next() {
     if (myEpoch !== sessionEpoch) return;
     round++;
     if (round > ROUNDS_PER_SESSION) {
-      renderSummary(config, totalMistakes);
+      renderSummary(config, totalMistakes, perfectRounds);
       return;
     }
     const data = generate(range.min, range.max);
@@ -356,6 +414,7 @@ function runSession(config) {
       header: buildRoundHeader({ icon, title, round, total: ROUNDS_PER_SESSION, range }),
       onRoundDone: (mistakesInRound) => {
         totalMistakes += mistakesInRound;
+        if (mistakesInRound === 0) perfectRounds++;
         setTimeout(next, 900);
       },
     });
@@ -365,7 +424,7 @@ function runSession(config) {
   next();
 }
 
-function renderSummary(config, mistakes) {
+function renderSummary(config, mistakes, perfectRounds) {
   const starsEarned = mistakes === 0 ? 3 : mistakes <= 3 ? 2 : 1;
   state.stars += starsEarned;
   persistStars();
@@ -378,6 +437,16 @@ function renderSummary(config, mistakes) {
       { class: "summary-card" },
       el("div", { class: "summary-emoji" }, perfect ? "🏆" : "🎉"),
       el("h2", {}, "أحسنت! أكملت التمرين"),
+      el(
+        "div",
+        { class: "score-badge" },
+        el("span", { class: "score-label" }, "درجتك"),
+        el(
+          "span",
+          { class: "score-value" },
+          `${toArabicDigits(perfectRounds)} من ${toArabicDigits(ROUNDS_PER_SESSION)}`
+        )
+      ),
       el("div", { class: "stars-earned" }, "⭐".repeat(starsEarned) + "☆".repeat(3 - starsEarned)),
       el(
         "p",
@@ -732,132 +801,6 @@ function renderOddEvenRound({ data, header, onRoundDone }) {
   );
 }
 
-/* ============================= اللعبة ٤: لعبة التوصيل ============================= */
-
-function generateMatchRound(min, max) {
-  const mode = Math.random() < 0.5 ? "parity" : "next";
-  const count = 5;
-  let pairs;
-
-  if (mode === "parity") {
-    const numbers = uniqueRandomSet(min, max, count);
-    pairs = numbers.map((n) => ({ left: String(n), right: n % 2 === 0 ? "زوجي" : "فردي" }));
-  } else {
-    const numbers = uniqueRandomSet(min, Math.max(min, max - 1), count);
-    pairs = numbers.map((n) => ({ left: String(n), right: String(n + 1) }));
-  }
-
-  const leftItems = shuffle(pairs.map((p, i) => ({ id: i, label: p.left })));
-  const rightItems = shuffle(pairs.map((p, i) => ({ id: i, label: p.right })));
-  return { mode, leftItems, rightItems, total: pairs.length };
-}
-
-function renderMatchRound({ data, header, onRoundDone }) {
-  let mistakes = 0;
-  let matchedCount = 0;
-  let selected = null;
-
-  const instructionText =
-    data.mode === "parity" ? "صل كل رقم بنوعه: زوجي أم فردي" : "صل كل رقم بالرقم الذي يليه مباشرة";
-  const banner = el("div", { class: "instruction-banner" }, instructionText);
-
-  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-  svg.setAttribute("class", "match-svg");
-
-  const leftCol = el("div", { class: "match-col" });
-  const rightCol = el("div", { class: "match-col" });
-  const wrap = el("div", { class: "match-wrap" }, svg, el("div", { class: "match-columns" }, leftCol, rightCol));
-
-  const leftEls = new Map();
-  const rightEls = new Map();
-
-  data.leftItems.forEach((item) => {
-    const node = el(
-      "button",
-      { class: "match-item", onClick: () => onSelect(node, item.id, "left") },
-      toArabicDigits(item.label)
-    );
-    leftEls.set(item.id, node);
-    leftCol.append(node);
-  });
-  data.rightItems.forEach((item) => {
-    const node = el(
-      "button",
-      { class: "match-item", onClick: () => onSelect(node, item.id, "right") },
-      toArabicDigits(item.label)
-    );
-    rightEls.set(item.id, node);
-    rightCol.append(node);
-  });
-
-  function onSelect(node, id, side) {
-    if (node.classList.contains("matched")) return;
-    if (!selected) {
-      selected = { node, id, side };
-      node.classList.add("selected");
-      return;
-    }
-    if (selected.side === side) {
-      selected.node.classList.remove("selected");
-      selected = { node, id, side };
-      node.classList.add("selected");
-      return;
-    }
-    const left = side === "left" ? node : selected.node;
-    const right = side === "right" ? node : selected.node;
-    const leftId = side === "left" ? id : selected.id;
-    const rightId = side === "right" ? id : selected.id;
-
-    selected.node.classList.remove("selected");
-
-    if (leftId === rightId) {
-      left.classList.add("matched");
-      right.classList.add("matched");
-      playSound("correct");
-      sayMascot("correct");
-      drawLine(left, right);
-      matchedCount++;
-      selected = null;
-      if (matchedCount === data.total) {
-        playSound("win");
-        onRoundDone(mistakes);
-      }
-    } else {
-      mistakes++;
-      left.classList.add("wrong-flash");
-      right.classList.add("wrong-flash");
-      playSound("wrong");
-      sayMascot("wrong");
-      selected = null;
-      setTimeout(() => {
-        left.classList.remove("wrong-flash");
-        right.classList.remove("wrong-flash");
-      }, 500);
-    }
-  }
-
-  function drawLine(leftNode, rightNode) {
-    const wrapRect = wrap.getBoundingClientRect();
-    const a = leftNode.getBoundingClientRect();
-    const b = rightNode.getBoundingClientRect();
-    const x1 = a.right - wrapRect.left;
-    const y1 = a.top + a.height / 2 - wrapRect.top;
-    const x2 = b.left - wrapRect.left;
-    const y2 = b.top + b.height / 2 - wrapRect.top;
-    const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
-    line.setAttribute("x1", x1);
-    line.setAttribute("y1", y1);
-    line.setAttribute("x2", x2);
-    line.setAttribute("y2", y2);
-    line.setAttribute("stroke", "#66bb6a");
-    line.setAttribute("stroke-width", "4");
-    line.setAttribute("stroke-linecap", "round");
-    svg.append(line);
-  }
-
-  view.append(header, banner, el("div", { class: "game-card" }, wrap));
-}
-
 /* ============================= الشاشة الرئيسية ============================= */
 
 let cleanupHooks = [];
@@ -919,8 +862,7 @@ function renderHome() {
     { class: "menu-grid" },
     buildMenuCard("🔢", "ترتيب الأعداد", "رتّب الأرقام تصاعديًا أو تنازليًا", () => startOrderGame()),
     buildMenuCard("🧩", "أكمل التسلسل", "أكمل الأرقام الناقصة في السلسلة", () => startSequenceGame()),
-    buildMenuCard("🎈", "زوجي أم فردي", "اسحب كل رقم إلى السلة الصحيحة", () => startOddEvenGame()),
-    buildMenuCard("🔗", "لعبة التوصيل", "صل كل رقم بما يناسبه", () => startMatchGame())
+    buildMenuCard("🎈", "زوجي أم فردي", "اسحب كل رقم إلى السلة الصحيحة", () => startOddEvenGame())
   );
 
   view.append(title, subtitle, rangeSection, grid);
@@ -954,16 +896,6 @@ function startOddEvenGame() {
     title: "زوجي أم فردي",
     generate: generateOddEvenRound,
     renderRound: renderOddEvenRound,
-  });
-}
-
-function startMatchGame() {
-  homeBtn.hidden = false;
-  runSession({
-    icon: "🔗",
-    title: "لعبة التوصيل",
-    generate: generateMatchRound,
-    renderRound: renderMatchRound,
   });
 }
 
