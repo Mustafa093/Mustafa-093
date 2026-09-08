@@ -47,11 +47,6 @@ button {
   font-family: inherit;
 }
 
-.ltr-row {
-  direction: ltr;
-  unicode-bidi: isolate;
-}
-
 /* ---------- header ---------- */
 .app-header {
   position: sticky;

@@ -323,8 +323,8 @@ function renderOrderRound({ data, header, onRoundDone }) {
   const dirLabel = data.direction === "asc" ? "تصاعديًا ⬆️" : "تنازليًا ⬇️";
   const banner = el("div", { class: "instruction-banner" }, `اسحب الأرقام ورتّبها ${dirLabel}`);
 
-  const poolArea = el("div", { class: "pool-area chip-row ltr-row" });
-  const slotRow = el("div", { class: "slot-row chip-row ltr-row" });
+  const poolArea = el("div", { class: "pool-area chip-row" });
+  const slotRow = el("div", { class: "slot-row chip-row" });
   const slots = [];
 
   for (let i = 0; i < data.count; i++) {
@@ -446,7 +446,7 @@ function renderSequenceRound({ data, header, onRoundDone }) {
   const dirLabel = data.direction === "asc" ? "تصاعديًا ⬆️" : "تنازليًا ⬇️";
   const banner = el("div", { class: "instruction-banner" }, `أكمل الأرقام الناقصة في السلسلة (${dirLabel})`);
 
-  const seqRow = el("div", { class: "chip-row sequence-row ltr-row" });
+  const seqRow = el("div", { class: "chip-row sequence-row" });
   const blanks = [];
   let activeBlank = null;
 
@@ -574,9 +574,9 @@ function renderOddEvenRound({ data, header, onRoundDone }) {
   let remaining = data.numbers.length;
   const banner = el("div", { class: "instruction-banner" }, "اسحب كل رقم إلى السلة الصحيحة 🧺");
 
-  const poolArea = el("div", { class: "pool-area chip-row ltr-row" });
-  const evenChips = el("div", { class: "basket-chips ltr-row" });
-  const oddChips = el("div", { class: "basket-chips ltr-row" });
+  const poolArea = el("div", { class: "pool-area chip-row" });
+  const evenChips = el("div", { class: "basket-chips" });
+  const oddChips = el("div", { class: "basket-chips" });
 
   const evenZone = el(
     "div",
@@ -674,7 +674,7 @@ function renderMatchRound({ data, header, onRoundDone }) {
   const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
   svg.setAttribute("class", "match-svg");
 
-  const leftCol = el("div", { class: "match-col ltr-row" });
+  const leftCol = el("div", { class: "match-col" });
   const rightCol = el("div", { class: "match-col" });
   const wrap = el("div", { class: "match-wrap" }, svg, el("div", { class: "match-columns" }, leftCol, rightCol));
 
