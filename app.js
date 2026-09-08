@@ -6,8 +6,16 @@ const STORAGE_KEY_STARS = "numbersApp.stars";
 const STORAGE_KEY_MUTE = "numbersApp.muted";
 const ROUNDS_PER_SESSION = 3;
 
+const RANGE_BANDS = [
+  { min: 0, max: 10 },
+  { min: 11, max: 20 },
+  { min: 21, max: 30 },
+  { min: 31, max: 40 },
+  { min: 41, max: 50 },
+];
+
 const state = {
-  maxNumber: 20,
+  range: RANGE_BANDS[0],
   stars: Number(localStorage.getItem(STORAGE_KEY_STARS) || 0),
   muted: localStorage.getItem(STORAGE_KEY_MUTE) === "1",
 };
@@ -232,7 +240,7 @@ function makeDraggable(chip, { dropZoneSelector, onDrop }) {
 
 /* ============================= رأس الجولة المشترك ============================= */
 
-function buildRoundHeader({ icon, title, round, total }) {
+function buildRoundHeader({ icon, title, round, total, range }) {
   const dots = [];
   for (let i = 1; i <= total; i++) {
     const cls = i < round ? "progress-dot done" : i === round ? "progress-dot current" : "progress-dot";
@@ -242,6 +250,7 @@ function buildRoundHeader({ icon, title, round, total }) {
     "div",
     { class: "round-header" },
     el("div", { class: "round-title" }, icon + " " + title),
+    el("div", { class: "range-chip" }, `🔢 ${range.min}-${range.max}`),
     el("div", { class: "progress-dots" }, ...dots)
   );
 }
@@ -250,6 +259,7 @@ function buildRoundHeader({ icon, title, round, total }) {
 
 function runSession(config) {
   const { icon, title, generate, renderRound } = config;
+  const range = state.range;
   let round = 0;
   let totalMistakes = 0;
 
@@ -259,11 +269,11 @@ function runSession(config) {
       renderSummary(config, totalMistakes);
       return;
     }
-    const data = generate(state.maxNumber);
+    const data = generate(range.min, range.max);
     clearView();
     renderRound({
       data,
-      header: buildRoundHeader({ icon, title, round, total: ROUNDS_PER_SESSION }),
+      header: buildRoundHeader({ icon, title, round, total: ROUNDS_PER_SESSION, range }),
       onRoundDone: (mistakesInRound) => {
         totalMistakes += mistakesInRound;
         setTimeout(next, 900);
@@ -310,10 +320,10 @@ function renderSummary(config, mistakes) {
 
 /* ============================= اللعبة ١: ترتيب الأعداد ============================= */
 
-function generateOrderRound(max) {
+function generateOrderRound(min, max) {
   const direction = Math.random() < 0.5 ? "asc" : "desc";
   const count = 5;
-  const numbers = uniqueRandomSet(0, max, count);
+  const numbers = uniqueRandomSet(min, max, count);
   const correctOrder = [...numbers].sort((a, b) => (direction === "asc" ? a - b : b - a));
   return { direction, pool: shuffle(numbers), correctOrder, count };
 }
@@ -427,11 +437,11 @@ function buildChip(value) {
 
 /* ============================= اللعبة ٢: أكمل التسلسل ============================= */
 
-function generateSequenceRound(max) {
+function generateSequenceRound(min, max) {
   const direction = Math.random() < 0.5 ? "asc" : "desc";
   const length = 6;
-  const maxStart = Math.max(0, max - length + 1);
-  const start = randInt(0, maxStart);
+  const maxStart = Math.max(min, max - length + 1);
+  const start = randInt(min, maxStart);
   let seq = Array.from({ length }, (_, i) => start + i);
   if (direction === "desc") seq = seq.slice().reverse();
 
@@ -563,9 +573,9 @@ function renderSequenceRound({ data, header, onRoundDone }) {
 
 /* ============================= اللعبة ٣: زوجي أم فردي ============================= */
 
-function generateOddEvenRound(max) {
-  const count = Math.min(6, max + 1);
-  const numbers = uniqueRandomSet(0, max, count);
+function generateOddEvenRound(min, max) {
+  const count = Math.min(6, max - min + 1);
+  const numbers = uniqueRandomSet(min, max, count);
   return { numbers };
 }
 
@@ -644,16 +654,16 @@ function renderOddEvenRound({ data, header, onRoundDone }) {
 
 /* ============================= اللعبة ٤: لعبة التوصيل ============================= */
 
-function generateMatchRound(max) {
+function generateMatchRound(min, max) {
   const mode = Math.random() < 0.5 ? "parity" : "next";
   const count = 5;
   let pairs;
 
   if (mode === "parity") {
-    const numbers = uniqueRandomSet(0, max, count);
+    const numbers = uniqueRandomSet(min, max, count);
     pairs = numbers.map((n) => ({ left: String(n), right: n % 2 === 0 ? "زوجي" : "فردي" }));
   } else {
-    const numbers = uniqueRandomSet(0, Math.max(0, max - 1), count);
+    const numbers = uniqueRandomSet(min, Math.max(min, max - 1), count);
     pairs = numbers.map((n) => ({ left: String(n), right: String(n + 1) }));
   }
 
@@ -769,25 +779,30 @@ function runCleanupHooks() {
 }
 
 function buildRangeSelector() {
-  const options = [10, 20, 50];
-  const wrap = el("div", { class: "range-selector" }, el("span", { class: "range-label" }, "🎯 حتى الرقم:"));
-  const buttons = options.map((n) => {
+  const wrap = el(
+    "div",
+    { class: "range-selector-wrap" },
+    el("div", { class: "range-selector" }, el("span", { class: "range-label" }, "🎯 نطاق الأعداد:"))
+  );
+  const bandsRow = wrap.firstChild;
+  const buttons = RANGE_BANDS.map((band) => {
     const btn = el(
       "button",
       {
-        class: "range-btn" + (state.maxNumber === n ? " active" : ""),
+        class: "range-btn" + (state.range === band ? " active" : ""),
         onClick: () => {
-          state.maxNumber = n;
+          state.range = band;
           buttons.forEach((b) => b.classList.remove("active"));
           btn.classList.add("active");
           playSound("click");
         },
       },
-      String(n)
+      `${band.min}-${band.max}`
     );
     return btn;
   });
-  buttons.forEach((b) => wrap.append(b));
+  buttons.forEach((b) => bandsRow.append(b));
+  wrap.append(el("p", { class: "range-hint" }, "اختر النطاق أولًا، ثم اضغط على أحد التمارين بالأسفل ⬇️"));
   return wrap;
 }
 

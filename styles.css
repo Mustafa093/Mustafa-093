@@ -117,13 +117,15 @@ button {
 }
 
 /* ---------- range selector ---------- */
+.range-selector-wrap {
+  margin-bottom: 26px;
+}
 .range-selector {
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 10px;
   flex-wrap: wrap;
-  margin-bottom: 26px;
 }
 .range-label {
   font-weight: 700;
@@ -140,12 +142,19 @@ button {
   border-radius: 999px;
   cursor: pointer;
   transition: all 0.15s ease;
+  direction: ltr;
 }
 .range-btn:hover { transform: translateY(-2px); }
 .range-btn.active {
   background: var(--sky);
   color: #fff;
   box-shadow: var(--shadow-soft);
+}
+.range-hint {
+  text-align: center;
+  font-size: 14px;
+  color: var(--ink-soft);
+  margin: 10px 0 0;
 }
 
 /* ---------- menu grid ---------- */
@@ -211,6 +220,17 @@ button {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.range-chip {
+  background: #eef3ff;
+  color: var(--purple-dark);
+  border-radius: 999px;
+  padding: 6px 14px;
+  font-size: 15px;
+  font-weight: 700;
+  direction: ltr;
+  white-space: nowrap;
 }
 
 .progress-dots {
