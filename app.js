@@ -6,13 +6,10 @@ const STORAGE_KEY_STARS = "numbersApp.stars";
 const STORAGE_KEY_MUTE = "numbersApp.muted";
 const ROUNDS_PER_SESSION = 3;
 
-const RANGE_BANDS = [
-  { min: 0, max: 10 },
-  { min: 11, max: 20 },
-  { min: 21, max: 30 },
-  { min: 31, max: 40 },
-  { min: 41, max: 50 },
-];
+const RANGE_BANDS = [{ min: 0, max: 10 }];
+for (let start = 11; start <= 91; start += 10) {
+  RANGE_BANDS.push({ min: start, max: start + 9 });
+}
 
 const state = {
   range: RANGE_BANDS[0],
@@ -76,9 +73,14 @@ function uniqueRandomSet(min, max, count) {
   return shuffle([...set]);
 }
 
+const ARABIC_INDIC_DIGITS = ["٠", "١", "٢", "٣", "٤", "٥", "٦", "٧", "٨", "٩"];
+function toArabicDigits(value) {
+  return String(value).replace(/[0-9]/g, (d) => ARABIC_INDIC_DIGITS[d]);
+}
+
 function persistStars() {
   localStorage.setItem(STORAGE_KEY_STARS, String(state.stars));
-  starCountEl.textContent = state.stars;
+  starCountEl.textContent = toArabicDigits(state.stars);
 }
 
 function persistMute() {
@@ -134,6 +136,79 @@ function playSound(kind) {
     beep(440, 0.05);
   }
 }
+
+/* ============================= الموسيقى الخلفية ============================= */
+
+const BG_MELODY = [
+  [523.25, 0.3],
+  [659.25, 0.3],
+  [783.99, 0.3],
+  [659.25, 0.3],
+  [523.25, 0.3],
+  [783.99, 0.3],
+  [880.0, 0.45],
+  [783.99, 0.3],
+  [659.25, 0.3],
+  [523.25, 0.45],
+];
+
+let musicPlaying = false;
+let musicStep = 0;
+let musicTimer = null;
+
+function playMusicNote(freq, duration) {
+  try {
+    const ctx = ensureAudio();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = "triangle";
+    osc.frequency.value = freq;
+    const start = ctx.currentTime;
+    gain.gain.setValueAtTime(0.0001, start);
+    gain.gain.linearRampToValueAtTime(0.045, start + 0.06);
+    gain.gain.exponentialRampToValueAtTime(0.0001, start + duration);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(start);
+    osc.stop(start + duration + 0.02);
+  } catch (e) {
+    /* الصوت غير متاح - يتجاهل بصمت */
+  }
+}
+
+function scheduleNextNote() {
+  if (!musicPlaying || state.muted) {
+    musicTimer = null;
+    return;
+  }
+  const [freq, duration] = BG_MELODY[musicStep % BG_MELODY.length];
+  playMusicNote(freq, duration);
+  musicStep++;
+  musicTimer = setTimeout(scheduleNextNote, duration * 1000);
+}
+
+function startBackgroundMusic() {
+  if (musicPlaying || state.muted) return;
+  musicPlaying = true;
+  scheduleNextNote();
+}
+
+function stopBackgroundMusic() {
+  musicPlaying = false;
+  if (musicTimer) {
+    clearTimeout(musicTimer);
+    musicTimer = null;
+  }
+}
+
+document.addEventListener(
+  "pointerdown",
+  () => {
+    ensureAudio();
+    startBackgroundMusic();
+  },
+  { once: true }
+);
 
 /* ============================= التميمة (البومة) ============================= */
 
@@ -250,20 +325,25 @@ function buildRoundHeader({ icon, title, round, total, range }) {
     "div",
     { class: "round-header" },
     el("div", { class: "round-title" }, icon + " " + title),
-    el("div", { class: "range-chip" }, `🔢 ${range.min}-${range.max}`),
+    el("div", { class: "range-chip" }, `🔢 ${toArabicDigits(range.min)} إلى ${toArabicDigits(range.max)}`),
     el("div", { class: "progress-dots" }, ...dots)
   );
 }
 
 /* ============================= مشغّل الجلسة العام ============================= */
 
+let sessionEpoch = 0;
+
 function runSession(config) {
+  sessionEpoch++;
+  const myEpoch = sessionEpoch;
   const { icon, title, generate, renderRound } = config;
   const range = state.range;
   let round = 0;
   let totalMistakes = 0;
 
   function next() {
+    if (myEpoch !== sessionEpoch) return;
     round++;
     if (round > ROUNDS_PER_SESSION) {
       renderSummary(config, totalMistakes);
@@ -430,7 +510,7 @@ function renderOrderRound({ data, header, onRoundDone }) {
 }
 
 function buildChip(value) {
-  const chip = el("div", { class: "chip pop-in" }, String(value));
+  const chip = el("div", { class: "chip pop-in" }, toArabicDigits(value));
   chip.dataset.value = String(value);
   return chip;
 }
@@ -469,7 +549,7 @@ function renderSequenceRound({ data, header, onRoundDone }) {
       blanks.push(box);
       seqRow.append(box);
     } else {
-      seqRow.append(el("div", { class: "seq-box given" }, String(value)));
+      seqRow.append(el("div", { class: "seq-box given" }, toArabicDigits(value)));
     }
   });
 
@@ -482,9 +562,9 @@ function renderSequenceRound({ data, header, onRoundDone }) {
 
   function typeDigit(d) {
     if (!activeBlank) return;
-    const next = (activeBlank.dataset.buffer + d).slice(-2);
+    const next = (activeBlank.dataset.buffer + d).slice(-3);
     activeBlank.dataset.buffer = next;
-    activeBlank.textContent = next;
+    activeBlank.textContent = toArabicDigits(next);
     playSound("click");
     refreshCheckState();
   }
@@ -493,7 +573,7 @@ function renderSequenceRound({ data, header, onRoundDone }) {
     if (!activeBlank) return;
     const next = activeBlank.dataset.buffer.slice(0, -1);
     activeBlank.dataset.buffer = next;
-    activeBlank.textContent = next === "" ? "؟" : next;
+    activeBlank.textContent = next === "" ? "؟" : toArabicDigits(next);
     refreshCheckState();
   }
 
@@ -504,7 +584,7 @@ function renderSequenceRound({ data, header, onRoundDone }) {
 
   const keys = [];
   for (let d = 0; d <= 9; d++) {
-    keys.push(el("button", { class: "key-btn", onClick: () => typeDigit(String(d)) }, String(d)));
+    keys.push(el("button", { class: "key-btn", onClick: () => typeDigit(String(d)) }, toArabicDigits(d)));
   }
   keys.push(el("button", { class: "key-btn key-back", onClick: backspace }, "⌫"));
 
@@ -518,7 +598,7 @@ function renderSequenceRound({ data, header, onRoundDone }) {
       if (val === b.dataset.answer) {
         b.classList.remove("wrong");
         b.classList.add("correct");
-        b.textContent = val;
+        b.textContent = toArabicDigits(val);
       } else {
         allCorrect = false;
         wrongCount++;
@@ -692,12 +772,20 @@ function renderMatchRound({ data, header, onRoundDone }) {
   const rightEls = new Map();
 
   data.leftItems.forEach((item) => {
-    const node = el("button", { class: "match-item", onClick: () => onSelect(node, item.id, "left") }, item.label);
+    const node = el(
+      "button",
+      { class: "match-item", onClick: () => onSelect(node, item.id, "left") },
+      toArabicDigits(item.label)
+    );
     leftEls.set(item.id, node);
     leftCol.append(node);
   });
   data.rightItems.forEach((item) => {
-    const node = el("button", { class: "match-item", onClick: () => onSelect(node, item.id, "right") }, item.label);
+    const node = el(
+      "button",
+      { class: "match-item", onClick: () => onSelect(node, item.id, "right") },
+      toArabicDigits(item.label)
+    );
     rightEls.set(item.id, node);
     rightCol.append(node);
   });
@@ -797,7 +885,7 @@ function buildRangeSelector() {
           playSound("click");
         },
       },
-      `${band.min}-${band.max}`
+      `${toArabicDigits(band.min)} إلى ${toArabicDigits(band.max)}`
     );
     return btn;
   });
@@ -817,6 +905,7 @@ function buildMenuCard(emoji, title, desc, onClick) {
 }
 
 function renderHome() {
+  sessionEpoch++;
   runCleanupHooks();
   clearView();
   homeBtn.hidden = true;
@@ -888,7 +977,12 @@ homeBtn.addEventListener("click", () => {
 muteBtn.addEventListener("click", () => {
   state.muted = !state.muted;
   persistMute();
-  playSound("click");
+  if (state.muted) {
+    stopBackgroundMusic();
+  } else {
+    playSound("click");
+    startBackgroundMusic();
+  }
 });
 
 /* ============================= بدء التشغيل ============================= */

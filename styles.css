@@ -142,7 +142,6 @@ button {
   border-radius: 999px;
   cursor: pointer;
   transition: all 0.15s ease;
-  direction: ltr;
 }
 .range-btn:hover { transform: translateY(-2px); }
 .range-btn.active {
@@ -229,7 +228,6 @@ button {
   padding: 6px 14px;
   font-size: 15px;
   font-weight: 700;
-  direction: ltr;
   white-space: nowrap;
 }
 
